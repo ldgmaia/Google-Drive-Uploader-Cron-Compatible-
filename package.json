@@ -4,8 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "node --watch --env-file .env index.js",
-    "backup": "node --env-file .env run_backup.js"
+    "dev": "node --env-file .env index.js"
   },
   "keywords": [],
   "author": "",

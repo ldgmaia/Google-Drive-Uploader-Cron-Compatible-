@@ -22,9 +22,9 @@ This project provides a simple Node.js script to upload files to Google Drive us
 2.  **Install dependencies:**
 
     ```bash
-    npm install
+    npm i
     # or
-    yarn install
+    yarn
     ```
 
 3.  **Create a `.env` file:**
@@ -61,3 +61,6 @@ To run the script, use the following command:
 
 ```bash
 node --env-file .env index.js
+or
+npm run dev
+```
