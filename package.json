@@ -1,0 +1,20 @@
+{
+  "name": "googledriveapi",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file .env index.js",
+    "backup": "node --env-file .env run_backup.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "fastify": "^5.2.1",
+    "fastify-multer": "^2.0.3",
+    "googleapis": "^146.0.0"
+  }
+}
