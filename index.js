@@ -9,26 +9,43 @@ const app = Fastify()
 const clientId = process.env.GOOGLE_CLIENT_ID
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET
 const redirectUri = process.env.GOOGLE_REDIRECT_URI
-const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
 
+const TOKENS_PATH = path.join(process.cwd(), 'tokens.json')
+
+// 🔄 Load saved refresh token from tokens.json or fallback to .env
+const loadTokens = () => {
+  if (fs.existsSync(TOKENS_PATH)) {
+    const raw = fs.readFileSync(TOKENS_PATH, 'utf-8')
+    const tokens = JSON.parse(raw)
+    return tokens
+  } else {
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
+    if (!refreshToken) {
+      throw new Error('No refresh token found in tokens.json or .env')
+    }
+    return { refresh_token: refreshToken }
+  }
+}
+
+// 🔐 Setup OAuth2 client
 const oAuth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri)
-oAuth2Client.setCredentials({ refresh_token: refreshToken })
+oAuth2Client.setCredentials(loadTokens())
 
-// ✅ Automatically store new refresh token if updated
+// 💾 Automatically save new tokens to tokens.json
 oAuth2Client.on('tokens', (tokens) => {
-  if (tokens.refresh_token) {
-    console.log('New refresh token received:', tokens.refresh_token)
-    fs.writeFileSync('.env', `GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}\n`, {
-      flag: 'w',
-    }) // Replace with secure storage
+  if (tokens.refresh_token || tokens.access_token) {
+    const currentTokens = loadTokens()
+    const updatedTokens = { ...currentTokens, ...tokens }
+    fs.writeFileSync(TOKENS_PATH, JSON.stringify(updatedTokens, null, 2))
+    console.log('✅ Saved updated tokens to tokens.json')
   }
 })
 
-// ✅ Get authorized Google Drive instance (Google handles token refresh)
+// 🔑 Get authorized Drive instance
 const getAuthorizedDrive = () =>
   google.drive({ version: 'v3', auth: oAuth2Client })
 
-// ✅ Find the 'backup' folder ID in Google Drive
+// 📁 Find backup folder
 const getBackupFolderId = async (drive) => {
   const response = await drive.files.list({
     q: `name='${process.env.DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
@@ -37,7 +54,7 @@ const getBackupFolderId = async (drive) => {
   })
 
   if (response.data.files.length > 0) {
-    return response.data.files[0].id // ✅ Found folder
+    return response.data.files[0].id
   } else {
     throw new Error(
       `Backup folder '${process.env.DRIVE_FOLDER_NAME}' not found in Google Drive`
@@ -45,10 +62,10 @@ const getBackupFolderId = async (drive) => {
   }
 }
 
-// ✅ Upload file from 'uploads' folder to 'backup' folder in Drive
+// 📤 Upload backup file
 const uploadBackup = async () => {
   try {
-    const drive = getAuthorizedDrive() // 🔹 Use authorized drive instance
+    const drive = getAuthorizedDrive()
 
     const timestamp = dayjs().format('YYYYMMDD-HHmmss')
     const newFileName = `rbms_backup_${timestamp}.gz`
@@ -65,7 +82,7 @@ const uploadBackup = async () => {
       requestBody: {
         name: newFileName,
         mimeType: 'application/gzip',
-        parents: [backupFolderId], // Upload to 'backup' folder
+        parents: [backupFolderId],
       },
       media: {
         mimeType: 'application/gzip',
@@ -75,11 +92,17 @@ const uploadBackup = async () => {
 
     console.log(`✅ File uploaded: ${newFileName} (ID: ${response.data.id})`)
   } catch (err) {
-    console.error('❌ Error uploading file:', err.message)
+    if (err.message === 'invalid_grant') {
+      console.error(
+        '❌ Refresh token is invalid or expired. Please reauthorize.'
+      )
+    } else {
+      console.error('❌ Error uploading file:', err.message)
+    }
   }
 }
 
-// ✅ Run automatically (for Cron job)
+// ⏰ Run backup automatically (for cron)
 uploadBackup()
 
 export default app
