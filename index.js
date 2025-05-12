@@ -17,6 +17,12 @@ const loadTokens = () => {
   if (fs.existsSync(TOKENS_PATH)) {
     const raw = fs.readFileSync(TOKENS_PATH, 'utf-8')
     const tokens = JSON.parse(raw)
+    if (!tokens.refresh_token) {
+      const envRefreshToken = process.env.GOOGLE_REFRESH_TOKEN
+      if (!envRefreshToken)
+        throw new Error('Missing refresh token in tokens.json and .env')
+      return { refresh_token: envRefreshToken }
+    }
     return tokens
   } else {
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
@@ -33,12 +39,15 @@ oAuth2Client.setCredentials(loadTokens())
 
 // 💾 Automatically save new tokens to tokens.json
 oAuth2Client.on('tokens', (tokens) => {
-  if (tokens.refresh_token || tokens.access_token) {
-    const currentTokens = loadTokens()
-    const updatedTokens = { ...currentTokens, ...tokens }
-    fs.writeFileSync(TOKENS_PATH, JSON.stringify(updatedTokens, null, 2))
-    console.log('✅ Saved updated tokens to tokens.json')
+  const currentTokens = loadTokens()
+  const updatedTokens = {
+    ...currentTokens,
+    ...tokens,
+    // ⚠️ Ensure refresh_token is never lost
+    refresh_token: tokens.refresh_token || currentTokens.refresh_token,
   }
+  fs.writeFileSync(TOKENS_PATH, JSON.stringify(updatedTokens, null, 2))
+  console.log('✅ Saved updated tokens to tokens.json')
 })
 
 // 🔑 Get authorized Drive instance
@@ -47,8 +56,9 @@ const getAuthorizedDrive = () =>
 
 // 📁 Find backup folder
 const getBackupFolderId = async (drive) => {
+  const folderName = process.env.DRIVE_FOLDER_NAME?.trim()
   const response = await drive.files.list({
-    q: `name='${process.env.DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    q: `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   })
@@ -56,9 +66,7 @@ const getBackupFolderId = async (drive) => {
   if (response.data.files.length > 0) {
     return response.data.files[0].id
   } else {
-    throw new Error(
-      `Backup folder '${process.env.DRIVE_FOLDER_NAME}' not found in Google Drive`
-    )
+    throw new Error(`Backup folder '${folderName}' not found in Google Drive`)
   }
 }
 
@@ -92,7 +100,7 @@ const uploadBackup = async () => {
 
     console.log(`✅ File uploaded: ${newFileName} (ID: ${response.data.id})`)
   } catch (err) {
-    if (err.message === 'invalid_grant') {
+    if (err.message.includes('invalid_grant')) {
       console.error(
         '❌ Refresh token is invalid or expired. Please reauthorize.'
       )
