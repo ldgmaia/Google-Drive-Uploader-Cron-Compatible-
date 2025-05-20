@@ -12,45 +12,36 @@ const redirectUri = process.env.GOOGLE_REDIRECT_URI
 
 const TOKENS_PATH = path.join(process.cwd(), 'tokens.json')
 
-// 🔄 Load saved refresh token from tokens.json or fallback to .env
-const loadTokens = () => {
+// 🔄 Load only refresh_token
+const loadRefreshToken = () => {
   if (fs.existsSync(TOKENS_PATH)) {
     const raw = fs.readFileSync(TOKENS_PATH, 'utf-8')
     const tokens = JSON.parse(raw)
     if (!tokens.refresh_token) {
-      const envRefreshToken = process.env.GOOGLE_REFRESH_TOKEN
-      if (!envRefreshToken)
-        throw new Error('Missing refresh token in tokens.json and .env')
-      return { refresh_token: envRefreshToken }
+      throw new Error('Missing refresh token in tokens.json')
     }
-    return tokens
-  } else {
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
-    if (!refreshToken) {
-      throw new Error('No refresh token found in tokens.json or .env')
-    }
-    return { refresh_token: refreshToken }
+    return { refresh_token: tokens.refresh_token }
   }
+  const envRefresh = process.env.GOOGLE_REFRESH_TOKEN
+  if (!envRefresh)
+    throw new Error('Missing refresh token in .env and tokens.json')
+  return { refresh_token: envRefresh }
 }
 
 // 🔐 Setup OAuth2 client
 const oAuth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri)
-oAuth2Client.setCredentials(loadTokens())
+oAuth2Client.setCredentials(loadRefreshToken())
 
-// 💾 Automatically save new tokens to tokens.json
-oAuth2Client.on('tokens', (tokens) => {
-  const currentTokens = loadTokens()
-  const updatedTokens = {
-    ...currentTokens,
-    ...tokens,
-    // ⚠️ Ensure refresh_token is never lost
-    refresh_token: tokens.refresh_token || currentTokens.refresh_token,
-  }
-  fs.writeFileSync(TOKENS_PATH, JSON.stringify(updatedTokens, null, 2))
-  console.log('✅ Saved updated tokens to tokens.json')
+// 🔍 Log all token requests and API calls
+google.options({ debug: true })
+oAuth2Client.request = new Proxy(oAuth2Client.request, {
+  apply(target, thisArg, args) {
+    console.log('📡 Making request to Google API:', args[0]?.url || args[0])
+    return Reflect.apply(target, thisArg, args)
+  },
 })
 
-// 🔑 Get authorized Drive instance
+// ✅ Get authorized Drive instance
 const getAuthorizedDrive = () =>
   google.drive({ version: 'v3', auth: oAuth2Client })
 
@@ -110,7 +101,7 @@ const uploadBackup = async () => {
   }
 }
 
-// ⏰ Run backup automatically (for cron)
+// ⏰ Run backup
 uploadBackup()
 
 export default app
